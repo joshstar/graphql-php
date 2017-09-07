@@ -22,6 +22,7 @@ use GraphQL\Type\Definition\FieldDefinition;
 use GraphQL\Type\Definition\InterfaceType;
 use GraphQL\Type\Definition\LeafType;
 use GraphQL\Type\Definition\ListOfType;
+use GraphQL\Type\Definition\ObjectOfType;
 use GraphQL\Type\Definition\NonNull;
 use GraphQL\Type\Definition\ObjectType;
 use GraphQL\Type\Definition\ResolveInfo;
@@ -1249,15 +1250,28 @@ class Executor
 
         $i = 0;
         $completedItems = [];
-        foreach ($result as $item) {
-            $fieldPath = $path;
-            $fieldPath[] = $i++;
-            $completedItem = $this->completeValueCatchingError($itemType, $fieldNodes, $info, $fieldPath, $item);
-            if (!$containsPromise && $this->getPromise($completedItem)) {
-                $containsPromise = true;
+        if ($returnType instanceof ObjectOfType) {
+            foreach ($result as $key => $item) {
+                $fieldPath = $path;
+                $fieldPath[] = $i++;
+                $completedItem = $this->completeValueCatchingError($itemType, $fieldNodes, $info, $fieldPath, $item);
+                if (!$containsPromise && $this->getPromise($completedItem)) {
+                    $containsPromise = true;
+                }
+                $completedItems[$key] = $completedItem;
             }
-            $completedItems[] = $completedItem;
+        } else {
+            foreach ($result as $item) {
+                $fieldPath = $path;
+                $fieldPath[] = $i++;
+                $completedItem = $this->completeValueCatchingError($itemType, $fieldNodes, $info, $fieldPath, $item);
+                if (!$containsPromise && $this->getPromise($completedItem)) {
+                    $containsPromise = true;
+                }
+                $completedItems[] = $completedItem;
+            }
         }
+        
         return $containsPromise ? $this->exeContext->promises->all($completedItems) : $completedItems;
     }
 
