@@ -102,6 +102,11 @@ class ResolveInfo
      * @var array
      */
     public $variableValues;
+    
+    /**
+     * @var array<fieldName, mixed>
+     */
+    public $fieldArguments;
 
     public function __construct(array $values)
     {
