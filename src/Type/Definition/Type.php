@@ -77,6 +77,15 @@ abstract class Type implements \JsonSerializable
     {
         return new ListOfType($wrappedType);
     }
+    
+    /**
+     * @param $wrappedType
+     * @return ObjectOfType
+     */
+    public static function objectOf($wrappedType)
+    {
+        return new ObjectOfType($wrappedType);
+    }
 
     /**
      * @api
