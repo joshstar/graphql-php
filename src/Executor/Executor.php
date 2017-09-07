@@ -672,6 +672,11 @@ class Executor
         }
 
         $returnType = $fieldDef->getType();
+        
+        $fieldArguments = [];
+        if (! starts_with($fieldName, '__')) {
+            $fieldArguments = $this->getFieldArguments($fieldNode, $returnType);
+        }
 
         // The resolve function's optional third argument is a collection of
         // information about the current execution state.
@@ -686,6 +691,7 @@ class Executor
             'rootValue' => $exeContext->rootValue,
             'operation' => $exeContext->operation,
             'variableValues' => $exeContext->variableValues,
+            'fieldArguments' => $fieldArguments,
         ]);
 
 
@@ -722,6 +728,80 @@ class Executor
         );
 
         return $result;
+    }
+    
+    private function getFieldArguments($fieldNode, $parentType, $childFieldArguments = [])
+    {
+        if (! isset($fieldNode->selectionSet)) {
+            return [];
+        }
+        
+        while ($parentType instanceof ListOfType) {
+            $parentType = $parentType->ofType;
+        }
+
+        foreach ($fieldNode->selectionSet->selections as $childFieldNode) {
+            if (isset($childFieldNode->name->value)) {
+                $name = $childFieldNode->name->value;
+            } else if (isset($childFieldNode->typeCondition)) {
+                $name = $childFieldNode->typeCondition->name->value;
+            }
+
+            if (! isset($name) || starts_with($name, '__') || $parentType->name === null || $parentType instanceof \GraphQL\Type\Definition\UnionType) {
+                continue;
+            }
+
+            $currentType = $this->getFieldDef($this->exeContext->schema, $parentType, $name);
+
+            $currentType = $currentType === null ? $parentType : $currentType->getType();
+
+            while ($currentType instanceof ListOfType) {
+                $currentType = $currentType->ofType;
+            }
+            
+            if ($childFieldNode->kind === 'FragmentSpread') {
+                $arg = $this->getFieldArguments($this->exeContext->fragments[$name], $parentType);
+                $childFieldArguments += $arg;
+                continue;
+            }
+
+            if ($childFieldNode->kind === 'InlineFragment') {
+                $arg = $this->getFieldArguments($childFieldNode, $parentType);
+                $childFieldArguments += $arg;
+                continue;
+            }
+            
+            if (! empty($childFieldNode->arguments)) {
+                $arg = Values::getArgumentValues(
+                    $this->getFieldDef($this->exeContext->schema, $parentType, $name),
+                    $childFieldNode,
+                    $this->exeContext->variableValues
+                );
+
+                $childFieldArguments[$name] = $arg;
+            }
+
+            if ($currentType instanceof \GraphQL\Type\Definition\UnionType) {
+                continue;
+            }
+
+            if (isset($childFieldNode->selectionSet) && $childFieldNode->selectionSet !== null) {
+                if (! isset($childFieldArguments[$name])) {
+                    $childFieldArguments[$name] = [];
+                }
+                
+                $this->getFieldDef($this->exeContext->schema, $currentType, $name);
+                $arg = $this->getFieldArguments($childFieldNode, $currentType, $childFieldArguments[$name]);
+
+                if (empty($arg)) {
+                    unset($childFieldArguments[$name]);
+                } else {
+                    $childFieldArguments[$name] += $arg;
+                }
+            }
+        }
+        
+        return $childFieldArguments;
     }
 
     /**
