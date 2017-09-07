@@ -772,7 +772,7 @@ class Executor
                 continue;
             }
             
-            if (! empty($childFieldNode->arguments)) {
+            if ($childFieldNode->arguments->count() !== 0) {
                 $arg = Values::getArgumentValues(
                     $this->getFieldDef($this->exeContext->schema, $parentType, $name),
                     $childFieldNode,
