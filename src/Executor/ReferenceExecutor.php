@@ -512,6 +512,12 @@ class ReferenceExecutor implements ExecutorImplementation
             return self::$UNDEFINED;
         }
         $returnType = $fieldDef->getType();
+
+        $fieldArguments = [];
+        if (! starts_with($fieldName, '__')) {
+            $fieldArguments = $this->getFieldArguments($fieldNode, $returnType);
+        }
+
         // The resolve function's optional third argument is a collection of
         // information about the current execution state.
         $info = new ResolveInfo(
@@ -526,6 +532,7 @@ class ReferenceExecutor implements ExecutorImplementation
             $exeContext->operation,
             $exeContext->variableValues
         );
+        $info->fieldArguments = $fieldArguments;
         if ($fieldDef->resolveFn !== null) {
             $resolveFn = $fieldDef->resolveFn;
         } elseif ($parentType->resolveFieldFn !== null) {
@@ -555,6 +562,77 @@ class ReferenceExecutor implements ExecutorImplementation
             $result
         );
         return $result;
+    }
+
+    private function getFieldArguments($fieldNode, $parentType, $childFieldArguments = [])
+    {
+        if (! isset($fieldNode->selectionSet)) {
+            return [];
+        }
+        
+        while ($parentType instanceof ListOfType) {
+            $parentType = $parentType->ofType;
+        }
+
+        foreach ($fieldNode->selectionSet->selections as $childFieldNode) {
+            if (isset($childFieldNode->name->value)) {
+                $name = $childFieldNode->name->value;
+            } else if (isset($childFieldNode->typeCondition)) {
+                $name = $childFieldNode->typeCondition->name->value;
+            } else {
+                continue;
+            }
+
+            if (starts_with($name, '__') || $parentType->name === null || $parentType instanceof \GraphQL\Type\Definition\UnionType) {
+                continue;
+            }
+
+            $currentType = $this->getFieldDef($this->exeContext->schema, $parentType, $name);
+            $currentType = $currentType === null ? $parentType : $currentType->getType();
+            while ($currentType instanceof ListOfType) {
+                $currentType = $currentType->ofType;
+            }
+
+            if ($childFieldNode->kind === 'FragmentSpread') {
+                $arg = $this->getFieldArguments($this->exeContext->fragments[$name], $parentType);
+                $childFieldArguments += $arg;
+                continue;
+            }
+            if ($childFieldNode->kind === 'InlineFragment') {
+                $arg = $this->getFieldArguments($childFieldNode, $parentType);
+                $childFieldArguments += $arg;
+                continue;
+            }
+
+            if ($childFieldNode->arguments->count() !== 0) {
+                $arg = Values::getArgumentValues(
+                    $this->getFieldDef($this->exeContext->schema, $parentType, $name),
+                    $childFieldNode,
+                    $this->exeContext->variableValues
+                );
+                $childFieldArguments[$name] = $arg;
+            }
+
+            if ($currentType instanceof \GraphQL\Type\Definition\UnionType) {
+                continue;
+            }
+
+            if (isset($childFieldNode->selectionSet) && $childFieldNode->selectionSet !== null) {
+                if (! isset($childFieldArguments[$name])) {
+                    $childFieldArguments[$name] = [];
+                }
+
+                $this->getFieldDef($this->exeContext->schema, $currentType, $name);
+                $arg = $this->getFieldArguments($childFieldNode, $currentType, $childFieldArguments[$name]);
+                if (empty($arg)) {
+                    unset($childFieldArguments[$name]);
+                } else {
+                    $childFieldArguments[$name] += $arg;
+                }
+            }
+        }
+
+        return $childFieldArguments;
     }
 
     /**
